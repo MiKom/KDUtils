@@ -25,6 +25,15 @@ jobs:
         shared:
           - ON
           - OFF
+        vstoolset: 
+          - 14.29 # Latest MSVC from VS2019
+          - ""    # empty value matches latest available when build with VS, does nothing on
+                  # non-windows build. So we need to exclude only non-empty values below
+        exclude:
+          - os: ubuntu-22.04
+            vstoolset: 14.29
+          - os: macos-12
+            vstoolset: 14.29
 
     steps:
       - name: Checkout sources
@@ -35,6 +44,8 @@ jobs:
 
       - name: Make sure MSVC is found when Ninja generator is in use
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          toolset: ${{ matrix.vstoolset }}
 
       - name: Install linux dependencies
         if: runner.os == 'Linux'
