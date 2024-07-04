@@ -11,6 +11,7 @@
 
 #include <KDUtils/bytearray.h>
 #include <cstring>
+#include <numeric>
 
 using namespace KDUtils;
 
@@ -442,7 +443,7 @@ TEST_SUITE("ByteArray")
         }
     }
 
-    TEST_CASE("checkToAndFromBase64")
+    void testArrayBase64(const std::vector<int32_t> array)
     {
         auto test = [](const std::vector<uint8_t> &data) {
             // GIVEN
@@ -456,7 +457,7 @@ TEST_SUITE("ByteArray")
             CHECK(t == t2);
         };
 
-        for (int32_t len = 1; len < 128; ++len) {
+        for (const auto len : array) {
             std::vector<uint8_t> data;
             data.resize(len);
 
@@ -467,6 +468,21 @@ TEST_SUITE("ByteArray")
                 }
             }
         }
+    }
+
+    TEST_CASE("checkToAndFromBase64")
+    {
+        const std::vector<int32_t> testedLengths = { 1, 2, 64, 65, 128 };
+        testArrayBase64(testedLengths);
+    }
+
+    TEST_CASE("checkToAndFromBase64Full"
+              * doctest::skip(true))
+    {
+        std::vector<int32_t> data(127);
+        std::iota(data.begin(), data.end(), 1);
+
+        testArrayBase64(data);
     }
 
     TEST_CASE("checkOperatorPlusEqual")
