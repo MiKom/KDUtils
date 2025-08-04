@@ -60,7 +60,7 @@ AbstractPlatformEventLoop::~AbstractPlatformEventLoop()
 void KDFoundation::AbstractPlatformEventLoop::waitForEvents(int timeout)
 {
     waitForEventsImpl(timeout);
-
+    printf("woken up\n");
     // Possibly we woke up because of deferred slot invocation was posted. Let's (possibly)
     // execute them while we're at it.
     if (m_connectionEvaluator) {

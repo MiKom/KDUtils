@@ -61,6 +61,8 @@ private:
 
     HANDLE m_wakeUpEvent;
     HWND m_msgWindow = 0;
+
+    std::vector<std::pair<int, int>> record;
 };
 
 } // namespace KDFoundation

@@ -153,11 +153,12 @@ TEST_CASE("Wait for events")
                 boundPort = foundPort;
                 cond.notify_all();
             }
-
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             auto clientSocket = accept(serverSocket, nullptr, nullptr);
             closesocket(serverSocket);
 
             if (clientSocket != INVALID_SOCKET) {
+                SPDLOG_WARN("Connection from client accepted");
                 ret = send(clientSocket, dataToSend.c_str(), static_cast<int>(dataToSend.size()) + 1, 0);
                 if (ret != SOCKET_ERROR) {
                     SPDLOG_INFO("Server sent {} bytes", ret);
@@ -194,14 +195,15 @@ TEST_CASE("Wait for events")
 
         // Set up read notifier to receive the data
         FileDescriptorNotifier readNotifier(static_cast<int>(clientSock), FileDescriptorNotifier::NotificationType::Read);
-        std::ignore = readNotifier.triggered.connect([&dataReceived](int fd) {
+        loop.registerNotifier(&readNotifier);
+
+        KDBindings::ConnectionHandle conn = readNotifier.triggered.connect([&dataReceived, &conn](int fd) {
             std::array<char, 128> buf = {};
-            recv(fd, buf.data(), 128, 0);
             const int recvSize = recv(fd, buf.data(), buf.size(), 0);
             SPDLOG_INFO("socket test: received {} bytes from the server", recvSize);
             dataReceived = std::string(buf.data());
+            conn.disconnect();
         });
-        loop.registerNotifier(&readNotifier);
 
         // A notifier for testing Write notification type
         FileDescriptorNotifier writeNotifier(static_cast<int>(clientSock), FileDescriptorNotifier::NotificationType::Write);
@@ -223,16 +225,23 @@ TEST_CASE("Wait for events")
         REQUIRE(rc == -1);
         REQUIRE(WSAGetLastError() == WSAEWOULDBLOCK);
 
+        printf("Before first wait\n");
         loop.waitForEvents(1000); // First we'll get FD_CONNECT on write notifier
+        printf("After first wait\n");
         loop.waitForEvents(1000); // Then FD_WRITE, also on the write notifier
-        loop.waitForEvents(1000); // And finally, FD_READ when data from the server is sent
-
-        REQUIRE(unregisteredCalls == 0);
-        REQUIRE(writeTriggered == 2);
-        REQUIRE_MESSAGE(dataReceived == dataToSend, "Data sent doesn't match the data received");
+        printf("After second wait\n");
+        if(dataReceived != dataToSend)
+            loop.waitForEvents(-1); // And finally, FD_READ when data from the server is sent
+        printf("After third wait\n");
+        // loop.waitForEvents(1000); // And finally, FD_READ when data from the server is sent
+        // printf("After fourth wait\n");
 
         closesocket(clientSock);
         serverThread.join();
         WSACleanup();
+
+        REQUIRE(unregisteredCalls == 0);
+        REQUIRE(writeTriggered == 2);
+        REQUIRE_MESSAGE(dataReceived == dataToSend, "Data sent doesn't match the data received");
     }
 }

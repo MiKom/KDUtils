@@ -6,7 +6,7 @@
             "hidden": true,
             "generator": "Ninja",
             "cacheVariables": {
-                "KDUTILS_BUILD_TESTS": "OFF",
+                "KDUTILS_BUILD_TESTS": "ON",
                 "KDUTILS_CODE_COVERAGE": "OFF"
             }
         },

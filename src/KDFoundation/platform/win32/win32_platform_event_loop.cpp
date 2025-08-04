@@ -18,6 +18,7 @@
 #include <KDUtils/logging.h>
 
 #include <cassert>
+#include <cstdio>
 
 using namespace KDFoundation;
 
@@ -78,13 +79,20 @@ Win32PlatformEventLoop::~Win32PlatformEventLoop()
         DestroyWindow(m_msgWindow);
     if (!UnregisterClass(s_msgWindowClassName, GetModuleHandle(nullptr)))
         SPDLOG_WARN("Failed to unregister message window class");
+
+    SPDLOG_WARN("Recorded socket actions:");
+    for(auto& t : record) {
+        SPDLOG_WARN("Socket: {}, op {}", t.first, t.second);
+    }
 }
 
 void Win32PlatformEventLoop::waitForEventsImpl(int timeout)
 {
+    printf("Waiting for events with timeout %d\n", timeout);
     MSG msg;
     bool hasMessage = PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE);
     if (!hasMessage) {
+        printf("Yeah, no message\n");
         // sleep until we get a message or the wake up event is signaled
         DWORD nCount = 0;
         HANDLE *pHandles = nullptr;
@@ -93,23 +101,32 @@ void Win32PlatformEventLoop::waitForEventsImpl(int timeout)
             pHandles = &m_wakeUpEvent;
         }
         const DWORD dwTimeout = timeout == -1 ? INFINITE : timeout;
+        printf("WaitForMultipleObjects, nCount: %d\n", nCount);
         const auto waitRet = MsgWaitForMultipleObjects(nCount, pHandles, FALSE, dwTimeout, QS_ALLINPUT);
         if (waitRet == WAIT_OBJECT_0) {
+            printf("wakeup signalled\n");
             // wake up event was signaled
             assert(m_wakeUpEvent);
             ResetEvent(m_wakeUpEvent);
         } else {
+            DWORD msgType = GetQueueStatus(QS_ALLINPUT);
             // either there's a message in the input queue or we timed out
             hasMessage = PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE);
+            
+            printf("timed out, has message: %d, waitRet: %d\n", hasMessage, waitRet);
+            printf("Queue status: %d, %d\n", HIWORD(msgType), LOWORD(msgType));
         }
     }
     if (hasMessage) {
+        printf("Dispatching message: %d, wparam: %d\n", msg.message, static_cast<int>(msg.wParam));
         if (msg.message == WM_QUIT) {
             // TODO: close all windows
         } else {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+    } else {
+        printf("Woke up without message\n");
     }
 }
 
@@ -199,10 +216,14 @@ void Win32PlatformEventLoop::handleSocketMessage(WPARAM wparam, LPARAM lparam)
 
     const auto &notifierSet = m_notifiers[sockId];
 
+    //record.push_back({sockId, op});
+    printf("Socket action, sock: %d op: %d\n", sockId, op);
+
     switch (op) {
     case FD_READ:
     case FD_CLOSE:
     case FD_ACCEPT:
+        printf("Delivering read event to socket: %d\n", sockId);
         if (notifierSet.events[0]) { // read event
             NotifierEvent ev;
             m_postman->deliverEvent(notifierSet.events[0], &ev);
@@ -210,12 +231,14 @@ void Win32PlatformEventLoop::handleSocketMessage(WPARAM wparam, LPARAM lparam)
         break;
     case FD_WRITE:
     case FD_CONNECT:
+        printf("Delivering write event to socket: %d\n", sockId);
         if (notifierSet.events[1]) { // write event
             NotifierEvent ev;
             m_postman->deliverEvent(notifierSet.events[1], &ev);
         }
         break;
     case FD_OOB:
+        printf("Delivering exception event to socket: %d\n", sockId);
         if (notifierSet.events[2]) { // exception event
             NotifierEvent ev;
             m_postman->deliverEvent(notifierSet.events[2], &ev);
@@ -250,6 +273,8 @@ bool KDFoundation::Win32PlatformEventLoop::registerWithWSAAsyncSelect(int fd, co
         if (notifiers.events[static_cast<size_t>(type)])
             eventsToSubscribe |= typeToWsaEvents(type);
     }
+
+    printf("WSAAsyncSelect: fd: %d events: %d\n", fd, eventsToSubscribe);
 
     const int result = WSAAsyncSelect(fd, m_msgWindow, WM_KD_SOCKETEVENT, eventsToSubscribe);
     if (result != 0) {
