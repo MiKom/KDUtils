@@ -71,11 +71,11 @@ bool MacOSPlatformEventLoop::registerNotifier(FileDescriptorNotifier *notifier)
     if (m_notifiers.count(fd))
         return false;
 
-    CFSocketContext context = {0, (void *)notifier, nullptr, nullptr, nullptr};
+    CFSocketContext context = { 0, (void *)notifier, nullptr, nullptr, nullptr };
     CFSocketRef socketRef = CFSocketCreateWithNative(kCFAllocatorDefault, fd,
-                                                    kCFSocketReadCallBack,
-                                                    NotifierCallback,
-                                                    &context);
+                                                     kCFSocketReadCallBack,
+                                                     NotifierCallback,
+                                                     &context);
     if (!socketRef)
         return false;
 
@@ -86,7 +86,7 @@ bool MacOSPlatformEventLoop::registerNotifier(FileDescriptorNotifier *notifier)
     }
     CFRunLoopAddSource(CFRunLoopGetCurrent(), sourceRef, kCFRunLoopDefaultMode);
 
-    m_notifiers[fd] = {notifier, socketRef, sourceRef};
+    m_notifiers[fd] = { notifier, socketRef, sourceRef };
     return true;
 }
 
