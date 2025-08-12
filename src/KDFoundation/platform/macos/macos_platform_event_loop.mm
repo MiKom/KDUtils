@@ -51,16 +51,63 @@ void MacOSPlatformEventLoop::wakeUp()
     CFRunLoopWakeUp(runLoop);
 }
 
-bool MacOSPlatformEventLoop::registerNotifier(FileDescriptorNotifier * /* notifier */)
+static void NotifierCallback(CFSocketRef s, CFSocketCallBackType type, CFDataRef, const void *info)
 {
-    // TODO
-    return false;
+    auto *notifier = static_cast<FileDescriptorNotifier *>(const_cast<void *>(info));
+    if (!notifier)
+        return;
+    // Only handle read events for now
+    if (type == kCFSocketReadCallBack) {
+        NotifierEvent ev;
+        notifier->event(notifier, &ev);
+    }
 }
 
-bool MacOSPlatformEventLoop::unregisterNotifier(FileDescriptorNotifier * /* notifier */)
+bool MacOSPlatformEventLoop::registerNotifier(FileDescriptorNotifier *notifier)
 {
-    // TODO
-    return false;
+    if (!notifier)
+        return false;
+    int fd = notifier->fileDescriptor();
+    if (m_notifiers.count(fd))
+        return false;
+
+    CFSocketContext context = {0, (void *)notifier, nullptr, nullptr, nullptr};
+    CFSocketRef socketRef = CFSocketCreateWithNative(kCFAllocatorDefault, fd,
+                                                    kCFSocketReadCallBack,
+                                                    NotifierCallback,
+                                                    &context);
+    if (!socketRef)
+        return false;
+
+    CFRunLoopSourceRef sourceRef = CFSocketCreateRunLoopSource(kCFAllocatorDefault, socketRef, 0);
+    if (!sourceRef) {
+        CFRelease(socketRef);
+        return false;
+    }
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), sourceRef, kCFRunLoopDefaultMode);
+
+    m_notifiers[fd] = {notifier, socketRef, sourceRef};
+    return true;
+}
+
+bool MacOSPlatformEventLoop::unregisterNotifier(FileDescriptorNotifier *notifier)
+{
+    if (!notifier)
+        return false;
+    int fd = notifier->fileDescriptor();
+    auto it = m_notifiers.find(fd);
+    if (it == m_notifiers.end())
+        return false;
+
+    if (it->second.sourceRef)
+        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), it->second.sourceRef, kCFRunLoopDefaultMode);
+    if (it->second.sourceRef)
+        CFRelease(it->second.sourceRef);
+    if (it->second.socketRef)
+        CFRelease(it->second.socketRef);
+
+    m_notifiers.erase(it);
+    return true;
 }
 
 std::unique_ptr<AbstractPlatformTimer> MacOSPlatformEventLoop::createPlatformTimerImpl(Timer *timer)
