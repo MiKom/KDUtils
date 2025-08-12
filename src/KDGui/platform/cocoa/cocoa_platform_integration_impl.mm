@@ -49,7 +49,7 @@ static void createMenuBar()
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
-    KDFoundation::MacOSPlatformEventLoop::postEmptyEvent();
+    KDFoundation::EventLoop::instance()->wakeUp();
     // we'll run the event loop manually from now on
     [NSApp stop:nil];
 }

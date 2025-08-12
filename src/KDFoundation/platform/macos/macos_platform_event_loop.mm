@@ -13,73 +13,101 @@
 #include "macos_platform_timer.h"
 
 #import <Foundation/Foundation.h>
-#import <AppKit/AppKit.h>
+#include <CoreFoundation/CoreFoundation.h>
 
 #include <limits>
 #include <memory>
-
-constexpr auto KDFoundationCocoaEventSubTypeWakeup = std::numeric_limits<short>::max();
 
 namespace KDFoundation {
 
 MacOSPlatformEventLoop::MacOSPlatformEventLoop()
 {
-    @autoreleasepool {
-        // make sure there's a NSApp
-        [NSApplication sharedApplication];
-    }
+    // No longer restrict to main thread. CFRunLoop works on any thread.
 }
 
 MacOSPlatformEventLoop::~MacOSPlatformEventLoop() = default;
 
 void MacOSPlatformEventLoop::waitForEventsImpl(int timeout)
 {
-    @autoreleasepool {
-        NSDate *expiration = [timeout] {
-            if (timeout == -1)
-                return [NSDate distantFuture];
-            if (timeout == 0)
-                return [NSDate distantPast];
-            return [NSDate dateWithTimeIntervalSinceNow:static_cast<double>(timeout) / 1000.0];
-        }();
-        NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:expiration inMode:NSDefaultRunLoopMode dequeue:YES];
-        if (event)
-            [NSApp sendEvent:event];
-    }
+    // Use CFRunLoopRunInMode for thread-safe event loop
+    CFRunLoopRef runLoop = CFRunLoopGetCurrent();
+    CFStringRef mode = kCFRunLoopDefaultMode;
+
+    double seconds;
+    if (timeout == -1)
+        seconds = 1.0e10; // Effectively infinite
+    else if (timeout == 0)
+        seconds = 0.0;
+    else
+        seconds = static_cast<double>(timeout) / 1000.0;
+
+    CFRunLoopRunInMode(mode, seconds, true);
 }
 
 void MacOSPlatformEventLoop::wakeUp()
 {
-    // post a dummy event to wake up the event loop
-    postEmptyEvent();
+    // Wake up the run loop for the current thread
+    CFRunLoopRef runLoop = CFRunLoopGetCurrent();
+    CFRunLoopWakeUp(runLoop);
 }
 
-void MacOSPlatformEventLoop::postEmptyEvent()
+static void NotifierCallback(CFSocketRef s, CFSocketCallBackType type, CFDataRef, const void *info)
 {
-    @autoreleasepool {
-        [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
-                                            location:NSZeroPoint
-                                       modifierFlags:0
-                                           timestamp:0
-                                        windowNumber:0
-                                             context:nil
-                                             subtype:KDFoundationCocoaEventSubTypeWakeup
-                                               data1:0
-                                               data2:0]
-                 atStart:NO];
+    auto *notifier = static_cast<FileDescriptorNotifier *>(const_cast<void *>(info));
+    if (!notifier)
+        return;
+    // Only handle read events for now
+    if (type == kCFSocketReadCallBack) {
+        NotifierEvent ev;
+        notifier->event(notifier, &ev);
     }
 }
 
-bool MacOSPlatformEventLoop::registerNotifier(FileDescriptorNotifier * /* notifier */)
+bool MacOSPlatformEventLoop::registerNotifier(FileDescriptorNotifier *notifier)
 {
-    // TODO
-    return false;
+    if (!notifier)
+        return false;
+    int fd = notifier->fileDescriptor();
+    if (m_notifiers.count(fd))
+        return false;
+
+    CFSocketContext context = { 0, (void *)notifier, nullptr, nullptr, nullptr };
+    CFSocketRef socketRef = CFSocketCreateWithNative(kCFAllocatorDefault, fd,
+                                                     kCFSocketReadCallBack,
+                                                     NotifierCallback,
+                                                     &context);
+    if (!socketRef)
+        return false;
+
+    CFRunLoopSourceRef sourceRef = CFSocketCreateRunLoopSource(kCFAllocatorDefault, socketRef, 0);
+    if (!sourceRef) {
+        CFRelease(socketRef);
+        return false;
+    }
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), sourceRef, kCFRunLoopDefaultMode);
+
+    m_notifiers[fd] = { notifier, socketRef, sourceRef };
+    return true;
 }
 
-bool MacOSPlatformEventLoop::unregisterNotifier(FileDescriptorNotifier * /* notifier */)
+bool MacOSPlatformEventLoop::unregisterNotifier(FileDescriptorNotifier *notifier)
 {
-    // TODO
-    return false;
+    if (!notifier)
+        return false;
+    int fd = notifier->fileDescriptor();
+    auto it = m_notifiers.find(fd);
+    if (it == m_notifiers.end())
+        return false;
+
+    if (it->second.sourceRef)
+        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), it->second.sourceRef, kCFRunLoopDefaultMode);
+    if (it->second.sourceRef)
+        CFRelease(it->second.sourceRef);
+    if (it->second.socketRef)
+        CFRelease(it->second.socketRef);
+
+    m_notifiers.erase(it);
+    return true;
 }
 
 std::unique_ptr<AbstractPlatformTimer> MacOSPlatformEventLoop::createPlatformTimerImpl(Timer *timer)

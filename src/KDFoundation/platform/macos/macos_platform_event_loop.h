@@ -36,11 +36,16 @@ public:
     bool registerNotifier(FileDescriptorNotifier *notifier) override;
     bool unregisterNotifier(FileDescriptorNotifier *notifier) override;
 
-    static void postEmptyEvent();
-
 private:
     void waitForEventsImpl(int timeout) override;
     std::unique_ptr<AbstractPlatformTimer> createPlatformTimerImpl(Timer *timer) override;
+
+    struct NotifierData {
+        FileDescriptorNotifier *notifier;
+        CFSocketRef socketRef;
+        CFRunLoopSourceRef sourceRef;
+    };
+    std::unordered_map<int, NotifierData> m_notifiers;
 
     std::unordered_map<void *, MacOSPlatformTimer *> timerMap;
     friend class MacOSPlatformTimer;

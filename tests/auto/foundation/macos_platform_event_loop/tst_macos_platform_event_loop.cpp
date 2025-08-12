@@ -14,6 +14,11 @@
 
 #include <KDFoundation/platform/macos/macos_platform_event_loop.h>
 #include <KDFoundation/object.h>
+#include <KDFoundation/file_descriptor_notifier.h>
+#include <KDFoundation/postman.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include <KDUtils/logging.h>
 
@@ -86,5 +91,60 @@ TEST_CASE("Wait for events")
 
         // Be nice!
         t1.join();
+    }
+
+    SUBCASE("can watch a socket for read events")
+    {
+        MacOSPlatformEventLoop loop;
+        Postman postman;
+        loop.setPostman(&postman);
+
+        int sv[2];
+        REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+
+        std::string dataToSend = "KDFoundation";
+        std::string dataReceived;
+
+        FileDescriptorNotifier readNotifier(sv[1], FileDescriptorNotifier::NotificationType::Read);
+        std::ignore = readNotifier.triggered.connect([&dataReceived, &sv](int fd) {
+            char buf[128] = {};
+            ssize_t recvSize = read(fd, buf, sizeof(buf));
+            dataReceived = std::string(buf, recvSize);
+        });
+        loop.registerNotifier(&readNotifier);
+
+        // Write data from the other end
+        REQUIRE(write(sv[0], dataToSend.c_str(), dataToSend.size()) == (ssize_t)dataToSend.size());
+
+        loop.waitForEvents(1000);
+        REQUIRE(dataReceived == dataToSend);
+
+        close(sv[0]);
+        close(sv[1]);
+    }
+
+    SUBCASE("can deregister notifier and not receive events")
+    {
+        MacOSPlatformEventLoop loop;
+        Postman postman;
+        loop.setPostman(&postman);
+
+        int sv[2];
+        REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+
+        int triggeredCount = 0;
+        FileDescriptorNotifier notifier(sv[1], FileDescriptorNotifier::NotificationType::Read);
+        std::ignore = notifier.triggered.connect([&triggeredCount](int) {
+            triggeredCount++;
+        });
+        loop.registerNotifier(&notifier);
+        loop.unregisterNotifier(&notifier);
+
+        REQUIRE(write(sv[0], "test", 4) == 4);
+        loop.waitForEvents(1000);
+        REQUIRE(triggeredCount == 0);
+
+        close(sv[0]);
+        close(sv[1]);
     }
 }
