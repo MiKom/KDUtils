@@ -27,17 +27,6 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
-namespace {
-auto shouldFailOnMacOS()
-{
-#if defined(PLATFORM_MACOS)
-    return doctest::should_fail(true);
-#else
-    return doctest::should_fail(false);
-#endif
-}
-} // namespace
-
 using namespace KDFoundation;
 
 static_assert(std::is_destructible<CoreApplication>{});
@@ -294,7 +283,7 @@ TEST_CASE("Main event loop")
     }
 }
 
-TEST_CASE("Worker thread event loop" * shouldFailOnMacOS())
+TEST_CASE("Worker thread event loop")
 {
     spdlog::set_level(spdlog::level::debug);
 

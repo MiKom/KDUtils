@@ -13,62 +13,42 @@
 #include "macos_platform_timer.h"
 
 #import <Foundation/Foundation.h>
-#import <AppKit/AppKit.h>
+#include <CoreFoundation/CoreFoundation.h>
 
 #include <limits>
 #include <memory>
-
-constexpr auto KDFoundationCocoaEventSubTypeWakeup = std::numeric_limits<short>::max();
 
 namespace KDFoundation {
 
 MacOSPlatformEventLoop::MacOSPlatformEventLoop()
 {
-    NSCAssert([NSThread isMainThread], @"Running an event loop on a secondary thread, is not yet supported on mac OS.");
-    @autoreleasepool {
-        // make sure there's a NSApp
-        [NSApplication sharedApplication];
-    }
+    // No longer restrict to main thread. CFRunLoop works on any thread.
 }
 
 MacOSPlatformEventLoop::~MacOSPlatformEventLoop() = default;
 
 void MacOSPlatformEventLoop::waitForEventsImpl(int timeout)
 {
-    @autoreleasepool {
-        NSDate *expiration = [timeout] {
-            if (timeout == -1)
-                return [NSDate distantFuture];
-            if (timeout == 0)
-                return [NSDate distantPast];
-            return [NSDate dateWithTimeIntervalSinceNow:static_cast<double>(timeout) / 1000.0];
-        }();
-        NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:expiration inMode:NSDefaultRunLoopMode dequeue:YES];
-        if (event)
-            [NSApp sendEvent:event];
-    }
+    // Use CFRunLoopRunInMode for thread-safe event loop
+    CFRunLoopRef runLoop = CFRunLoopGetCurrent();
+    CFStringRef mode = kCFRunLoopDefaultMode;
+
+    double seconds;
+    if (timeout == -1)
+        seconds = 1.0e10; // Effectively infinite
+    else if (timeout == 0)
+        seconds = 0.0;
+    else
+        seconds = static_cast<double>(timeout) / 1000.0;
+
+    CFRunLoopRunInMode(mode, seconds, true);
 }
 
 void MacOSPlatformEventLoop::wakeUp()
 {
-    // post a dummy event to wake up the event loop
-    postEmptyEvent();
-}
-
-void MacOSPlatformEventLoop::postEmptyEvent()
-{
-    @autoreleasepool {
-        [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
-                                            location:NSZeroPoint
-                                       modifierFlags:0
-                                           timestamp:0
-                                        windowNumber:0
-                                             context:nil
-                                             subtype:KDFoundationCocoaEventSubTypeWakeup
-                                               data1:0
-                                               data2:0]
-                 atStart:NO];
-    }
+    // Wake up the run loop for the current thread
+    CFRunLoopRef runLoop = CFRunLoopGetCurrent();
+    CFRunLoopWakeUp(runLoop);
 }
 
 bool MacOSPlatformEventLoop::registerNotifier(FileDescriptorNotifier * /* notifier */)

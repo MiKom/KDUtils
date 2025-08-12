@@ -26,17 +26,6 @@
 using namespace KDFoundation;
 using namespace KDGui;
 
-namespace {
-auto shouldFailOnMacOS()
-{
-#if defined(PLATFORM_MACOS)
-    return doctest::should_fail(true);
-#else
-    return doctest::should_fail(false);
-#endif
-}
-} // namespace
-
 TEST_CASE("Creation")
 {
     SUBCASE("default construction")
@@ -102,7 +91,7 @@ TEST_CASE("Main event loop")
     }
 }
 
-TEST_CASE("Worker thread event loop" * doctest::timeout(120 /* seconds */) * shouldFailOnMacOS())
+TEST_CASE("Worker thread event loop" * doctest::timeout(120 /* seconds */))
 {
     spdlog::set_level(spdlog::level::debug);
 

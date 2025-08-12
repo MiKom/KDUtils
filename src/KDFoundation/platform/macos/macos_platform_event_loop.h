@@ -36,8 +36,6 @@ public:
     bool registerNotifier(FileDescriptorNotifier *notifier) override;
     bool unregisterNotifier(FileDescriptorNotifier *notifier) override;
 
-    static void postEmptyEvent();
-
 private:
     void waitForEventsImpl(int timeout) override;
     std::unique_ptr<AbstractPlatformTimer> createPlatformTimerImpl(Timer *timer) override;

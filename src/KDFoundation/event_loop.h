@@ -49,6 +49,7 @@ public:
     EventQueue::size_type eventQueueSize() const { return m_eventQueue.size(); }
 
     void sendEvent(EventReceiver *target, Event *event);
+    void wakeUp() { m_platformEventLoop->wakeUp(); }
 
     void processEvents(int timeout = 0);
 
